@@ -55,7 +55,8 @@ SPSITECH.FORMIO = {
 
 
 
-        if (Formio) {
+        // make sure FORMIO is loaded and the form has not already been rendered (on after render being called more than once)
+        if (typeof Formio !== "undefined" && document.getElementById('formio').innerHTML === "") {
 
             console.log("Creating FormIO" + document.getElementById('formio'));
 
