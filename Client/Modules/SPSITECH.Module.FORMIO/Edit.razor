@@ -1,0 +1,143 @@
+@using Oqtane.Modules.Controls
+@using SPSITECH.Module.FORMIO.Services
+@using SPSITECH.Module.FORMIO.Models
+@using System.Text.Json.Nodes
+@using Microsoft.JSInterop
+
+@namespace SPSITECH.Module.FORMIO
+@inherits ModuleBase
+@inject IFORMIOService FORMIOService
+@inject NavigationManager NavigationManager
+@inject IStringLocalizer<Edit> Localizer
+
+<div id="formio"></div>
+    <button type="button" class="btn btn-success" @onclick="Save">@Localizer["Save"]</button>
+    <NavLink class="btn btn-secondary" href="@NavigateUrl()">@Localizer["Cancel"]</NavLink>
+   
+
+@code {
+    public override SecurityAccessLevel SecurityAccessLevel => SecurityAccessLevel.Edit;
+
+    public override string Actions => "Add,Edit";
+
+    public override string Title => "Manage FORMIO";
+
+    public override List<Resource> Resources => new List<Resource>()
+    {
+        new Resource { ResourceType = ResourceType.Stylesheet, Url =  "~/Module.css" },
+        new Resource { ResourceType = ResourceType.Script, Url =  "~/Module.js" },
+        new Resource { ResourceType = ResourceType.Stylesheet, Url = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" },
+        new Resource { ResourceType = ResourceType.Stylesheet, Url = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.css" },
+        new Resource { ResourceType = ResourceType.Stylesheet, Url = "https://cdn.form.io/formiojs/formio.full.css" },
+        new Resource { ResourceType = ResourceType.Script, Url = "https://cdn.form.io/formiojs/formio.full.js" } // for form builder
+    };
+
+    private ElementReference form;
+    private bool validated = false;
+
+    private int _id;
+    private string _name;
+    private string _createdby;
+    private DateTime _createdon;
+    private string _modifiedby;
+    private DateTime _modifiedon;
+
+    private static Edit _app;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _app = this;
+        try
+        {
+            if (PageState.Action == "Edit")
+            {
+                _id = Int32.Parse(PageState.QueryString["id"]);
+                FORMIO FORMIO = await FORMIOService.GetFORMIOAsync(_id, ModuleState.ModuleId);
+                if (FORMIO != null)
+                {
+                    _name = FORMIO.Name;
+                    _createdby = FORMIO.CreatedBy;
+                    _createdon = FORMIO.CreatedOn;
+                    _modifiedby = FORMIO.ModifiedBy;
+                    _modifiedon = FORMIO.ModifiedOn;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await logger.LogError(ex, "Error Loading FORMIO {FORMIOId} {Error}", _id, ex.Message);
+            AddModuleMessage(Localizer["Message.LoadError"], MessageType.Error);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // register the JavaScript library declared in Resources
+        await base.OnAfterRenderAsync(firstRender);
+       
+        //if (!firstRender)
+        //{
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("SPSITECH.FORMIO.renderFormBuilder", _name, null);   // DISPLAY FORM BUILDER
+            }
+            catch (JSException ex)
+            {
+                await logger.LogError(ex, "Error Calling FORMIO JS {Error}", ex.Message);
+            }
+       // }
+           
+        
+        if (PageState.Action == "Add")
+        {
+           
+        }
+
+    }
+
+    [JSInvokable]
+    public static async Task FormIOJSONUpdated(dynamic formJSON)
+    {
+        var jsonString = JsonObject.Create(formJSON).ToJsonString();
+        _app._name = jsonString;
+    }
+
+
+    private async Task Save()
+    {
+        try
+        {
+            validated = true;
+            var interop = new Oqtane.UI.Interop(JSRuntime);
+            if (await interop.FormValid(form))
+            {
+                if (PageState.Action == "Add")
+                {
+                    FORMIO FORMIO = new FORMIO();
+                    FORMIO.ModuleId = ModuleState.ModuleId;
+                    FORMIO.Name = _name;
+                    FORMIO = await FORMIOService.AddFORMIOAsync(FORMIO);
+                    await logger.LogInformation("FORMIO Added {FORMIO}", FORMIO);
+                }
+                else
+                {
+                    FORMIO FORMIO = await FORMIOService.GetFORMIOAsync(_id, ModuleState.ModuleId);
+                    FORMIO.Name = _name;
+                    await FORMIOService.UpdateFORMIOAsync(FORMIO);
+                    await logger.LogInformation("FORMIO Updated {FORMIO}", FORMIO);
+                }
+                NavigationManager.NavigateTo(NavigateUrl());
+            }
+            else
+            {
+                AddModuleMessage(Localizer["Message.SaveValidation"], MessageType.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            await logger.LogError(ex, "Error Saving FORMIO {Error}", ex.Message);
+            AddModuleMessage(Localizer["Message.SaveError"], MessageType.Error);
+        }
+    }
+}
